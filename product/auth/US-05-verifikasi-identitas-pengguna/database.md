@@ -1,0 +1,23 @@
+# US-05 — Database: Verifikasi identitas
+
+**User Story:** US-05 Membuat fitur verifikasi identitas.
+
+## Data yang dibutuhkan
+
+### Struktur
+`kyc_verifications: id uuid PK, user_id uuid FK, legal_name varchar, identity_number_encrypted text, document_ref text, status varchar, submitted_at timestamptz, verified_at timestamptz`
+
+## Prinsip database
+- Gunakan UUID sebagai primary key, `numeric(14,2)` untuk nominal uang, dan `timestamptz` untuk waktu.
+- Terapkan foreign key, unique constraint, serta validasi status menggunakan CHECK/enum.
+- Password, OTP, PIN, dan token harus disimpan sebagai hash; jangan menyimpan nilai mentah.
+- Data identitas dienkripsi dan aksesnya dibatasi.
+- File bukti/dokumen disimpan di object storage; database menyimpan metadata atau file reference.
+- Catat audit untuk perubahan data sensitif dan status transaksi.
+
+## Relasi/dependensi
+- Hubungkan tabel ke entitas inti FlexiPay melalui foreign key sesuai struktur yang disebutkan.
+- Pastikan tabel sumber (users, transactions, merchants, financings, installments) tersedia sebelum migrasi fitur ini.
+
+## Catatan implementasi
+Dokumen ini merupakan rancangan kebutuhan database per user story. Selaraskan nama kolom dan constraint dengan ERD/migrasi utama sebelum implementasi.
