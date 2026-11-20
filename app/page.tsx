@@ -4,6 +4,7 @@ import { SiteHeader } from "./site-header";
 import { AuthTrigger } from "./auth-trigger";
 import { PartnerMarquee } from "./partner-marquee";
 import { getAvailableCredit } from "@/lib/commerce-db";
+import { SiteFooter } from "./site-footer";
 
 const videoUrl = "https://www.pexels.com/download/video/34597340/";
 
@@ -34,7 +35,6 @@ export default async function Home() {
           <div className="hero-note"><span className="note-icon">✓</span> Praktis, fleksibel, dan transparan.</div>
         </div>
         <a className="scroll-cue" href="/keunggulan">JELAJAHI KEUNGGULAN <span>↗</span></a>
-        <div className="hero-index">01 <span>/</span> 04</div>
       </section>
 
       <PartnerMarquee />
@@ -49,7 +49,7 @@ export default async function Home() {
 
       <section className="final-cta" id="mulai"><div><div className="eyebrow"><span /> {user ? "AKUN FLEXIPAY" : "LANGKAH PERTAMAMU"}</div><h2>{user ? <>Senang melihatmu<br /><em>kembali.</em></> : <>Belanja nyaman,<br /><em>atur sesukamu.</em></>}</h2><p>{user ? `Kamu masuk sebagai ${user.email}.` : "Kenali FlexiPay dan pilihan pembayarannya."}</p><a className="button button-light" href="/pengajuan-kredit">Lihat informasi pengajuan <span>↗</span></a></div><div className="cta-orb">F<span>✳</span></div></section>
 
-      <footer><a className="brand footer-brand" href="#beranda" aria-label="Flexipay, Beranda"><img className="brand-logo" src="/flexipay-logo.png" alt="FlexiPay — your payment, your flexibility" /></a><p>Informasi layanan FlexiPay</p><a className="footer-admin-link" href="/admin">Portal Admin</a><span>© 2025 FlexiPay. Semua hak dilindungi.</span></footer>
+      <SiteFooter />
     </main>
   );
 }

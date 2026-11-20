@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { AuthModalProvider } from "./auth-modal-provider";
+import { CustomerSupport } from "./customer-support";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -14,7 +15,7 @@ export const metadata: Metadata = {
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
     <html lang="id" className="h-full antialiased" data-scroll-behavior="smooth">
-      <body className="min-h-full flex flex-col"><AuthModalProvider>{children}</AuthModalProvider></body>
+      <body className="min-h-full flex flex-col"><AuthModalProvider>{children}<CustomerSupport /></AuthModalProvider></body>
     </html>
   );
 }
