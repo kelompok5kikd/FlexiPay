@@ -2,11 +2,10 @@ import { connection } from "next/server";
 import { getCurrentUser } from "@/lib/current-user";
 import { SiteHeader } from "./site-header";
 import { AuthTrigger } from "./auth-trigger";
+import { HeroVideo } from "./hero-video";
 import { PartnerMarquee } from "./partner-marquee";
 import { getAvailableCredit } from "@/lib/commerce-db";
 import { SiteFooter } from "./site-footer";
-
-const videoUrl = "https://www.pexels.com/download/video/34597340/";
 
 const benefits = [
   { number: "01", title: "Bayar sesuai kemampuan", body: "Atur cicilan dengan pilihan tenor yang membantu belanja tetap nyaman." },
@@ -25,9 +24,7 @@ export default async function Home() {
       <SiteHeader user={user} totalLimit={availableLimit} />
 
       <section className="hero" id="beranda">
-        <video className="hero-video" autoPlay muted loop playsInline preload="metadata" poster="https://images.pexels.com/photos/1181406/pexels-photo-1181406.jpeg?auto=compress&cs=tinysrgb&w=2000" aria-label="Suasana kota modern">
-          <source src={videoUrl} type="video/mp4" />
-        </video>
+        <HeroVideo />
         <div className="hero-shade" />
         <div className="hero-content"><div className="eyebrow"><span /> BUY NOW, PAY LATER</div>
           <h1>Belanja<br />sekarang,<br /><em>bayar lebih</em><br />fleksibel.</h1>

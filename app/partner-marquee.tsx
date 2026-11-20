@@ -52,7 +52,7 @@ export function PartnerMarquee() {
                     alt={copy === 0 ? partner.name : ""}
                     width="48"
                     height="48"
-                    loading="eager"
+                    loading="lazy"
                     decoding="async"
                   />
                 ))}
