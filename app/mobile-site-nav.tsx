@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useState } from "react";
 
 const links = [
@@ -25,7 +26,7 @@ export function MobileSiteNav({ activePath }: { activePath: string }) {
       <span aria-hidden="true">{open ? "×" : "☰"}</span>
     </button>
     {open && <nav id="mobile-primary-navigation" className="mobile-nav-panel" aria-label="Navigasi utama">
-      {links.map(([href, label]) => <a key={href} href={href} aria-current={activePath === href ? "page" : undefined} onClick={() => setOpen(false)}>{label}<span aria-hidden="true">→</span></a>)}
+      {links.map(([href, label]) => <Link key={href} href={href} aria-current={activePath === href ? "page" : undefined} onClick={() => setOpen(false)}>{label}<span aria-hidden="true">→</span></Link>)}
     </nav>}
   </div>;
 }
