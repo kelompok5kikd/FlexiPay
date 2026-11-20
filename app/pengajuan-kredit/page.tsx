@@ -7,4 +7,4 @@ import { SiteHeader } from "../site-header";
 import { CreditApplicationFlow } from "./credit-application-flow";
 export const metadata={title:"Pengajuan kredit — FlexiPay"};
 export const instant=false;
-export default async function Page(){await connection();const user=await getCurrentUser();if(!user)redirect("/login?next=%2Fpengajuan-kredit");const application=getCreditApplicationForUser(user.id);return <main className="credit-page"><SiteHeader user={user} activePath="/pengajuan-kredit" totalLimit={getAvailableCredit(user.id)}/><CreditApplicationFlow user={user} application={application}/></main>}
+export default async function Page(){await connection();const user=await getCurrentUser();if(!user)redirect("/login?next=%2Fpengajuan-kredit");const [application,totalLimit]=await Promise.all([getCreditApplicationForUser(user.id),getAvailableCredit(user.id)]);return <main className="credit-page"><SiteHeader user={user} activePath="/pengajuan-kredit" totalLimit={totalLimit}/><CreditApplicationFlow user={user} application={application}/></main>}

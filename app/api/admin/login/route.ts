@@ -7,11 +7,16 @@ export async function POST(request: Request) {
   const email = typeof body.email === "string" ? body.email : "";
   const pin = typeof body.pin === "string" ? body.pin : "";
   if (!email || !/^\d{6}$/.test(pin)) {
-    recordAdminLoginFailure(email || "unknown");
-    return NextResponse.json({ error: "Email atau PIN admin salah." }, { status: 401 });
+    try {
+      await recordAdminLoginFailure(email || "unknown");
+      return NextResponse.json({ error: "Email atau PIN admin salah." }, { status: 401 });
+    } catch (error) {
+      console.error("Gagal mencatat percobaan login admin:", error);
+      return NextResponse.json({ error: "Login admin belum dapat diproses. Coba lagi." }, { status: 500 });
+    }
   }
   try {
-    const result = createAdminSession(email, pin);
+    const result = await createAdminSession(email, pin);
     if (!result) return NextResponse.json({ error: "Email atau PIN admin salah." }, { status: 401 });
     const response = NextResponse.json({ admin: result.admin });
     response.cookies.set("flexipay_admin_session", result.token, {
@@ -22,7 +27,8 @@ export async function POST(request: Request) {
       maxAge: 60 * 60 * 8,
     });
     return response;
-  } catch {
+  } catch (error) {
+    console.error("Gagal memproses login admin:", error);
     return NextResponse.json({ error: "Login admin belum dapat diproses. Coba lagi." }, { status: 500 });
   }
 }

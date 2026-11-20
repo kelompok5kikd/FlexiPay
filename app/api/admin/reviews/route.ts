@@ -6,7 +6,7 @@ const statuses = new Set(["in_review", "needs_revision", "eligible", "not_eligib
 
 export async function POST(request: Request) {
   const cookieStore = await cookies();
-  const admin = getAdminForSession(cookieStore.get("flexipay_admin_session")?.value);
+  const admin = await getAdminForSession(cookieStore.get("flexipay_admin_session")?.value);
   if (!admin) return NextResponse.json({ error: "Akses admin diperlukan." }, { status: 401 });
   let body: Record<string, unknown>;
   try { body = await request.json(); } catch { return NextResponse.json({ error: "Data review tidak valid." }, { status: 400 }); }
@@ -26,10 +26,11 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Role admin ini tidak memiliki izin menetapkan keputusan limit." }, { status: 403 });
   }
   try {
-    const result = saveAdminReview({ userId, adminId: admin.id, status: status as "in_review" | "needs_revision" | "eligible" | "not_eligible", approvedLimit: amount, reason, notes });
+    const result = await saveAdminReview({ userId, adminId: admin.id, status: status as "in_review" | "needs_revision" | "eligible" | "not_eligible", approvedLimit: amount, reason, notes });
     if (!result.success) return NextResponse.json({ error: "Pengguna tidak ditemukan." }, { status: 404 });
     return NextResponse.json({ success: true });
-  } catch {
+  } catch (error) {
+    console.error("Gagal menyimpan review admin:", error);
     return NextResponse.json({ error: "Review gagal disimpan." }, { status: 500 });
   }
 }

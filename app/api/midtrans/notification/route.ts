@@ -39,7 +39,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Signature tidak valid." }, { status: 401 });
   }
 
-  const payment = getPaymentByOrderId(orderId);
+  const payment = await getPaymentByOrderId(orderId);
   if (!payment) return NextResponse.json({ error: "Transaksi tidak ditemukan." }, { status: 404 });
   const amount = Number(grossAmount);
   if (!Number.isFinite(amount) || amount !== Number(payment.amount)) {
@@ -51,10 +51,11 @@ export async function POST(request: Request) {
     ? transactionStatus
     : "failure";
   try {
-    const updated = updateMidtransPayment({ orderId, transactionId, amount, status: normalizedStatus, paymentType, successful: isSuccessful });
+    const updated = await updateMidtransPayment({ orderId, transactionId, amount, status: normalizedStatus, paymentType, successful: isSuccessful });
     if (!updated) return NextResponse.json({ error: "Data pembayaran tidak cocok." }, { status: 400 });
     return NextResponse.json({ ok: true });
-  } catch {
+  } catch (error) {
+    console.error("Gagal menyimpan notifikasi Midtrans:", error);
     return NextResponse.json({ error: "Notifikasi belum dapat disimpan." }, { status: 500 });
   }
 }
