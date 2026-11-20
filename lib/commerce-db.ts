@@ -1,61 +1,8 @@
 import "server-only";
-import "@/lib/auth-db";
-import "@/lib/credit-applications";
-import { DatabaseSync as NodeDatabaseSync } from "node:sqlite";
-import { mkdirSync } from "node:fs";
-import { join } from "node:path";
-import { createCipheriv, createDecipheriv, randomBytes, randomUUID } from "node:crypto";
+import { randomUUID } from "node:crypto";
 import { verifyUserPin } from "@/lib/auth-db";
-
-type Statement={run:(...args:unknown[])=>{changes:number};get:(...args:unknown[])=>Record<string,unknown>|undefined;all:(...args:unknown[])=>Record<string,unknown>[]};
-type Database={exec:(sql:string)=>void;prepare:(sql:string)=>Statement};
-const DatabaseSync=NodeDatabaseSync as unknown as new(path:string)=>Database;
-const dataDirectory=join(process.cwd(),"data");mkdirSync(dataDirectory,{recursive:true});
-const db=new DatabaseSync(join(dataDirectory,"flexipay.db"));
-function privateRecordKey(){const key=process.env.FLEXIPAY_DATA_ENCRYPTION_KEY;if(!key||! /^[a-f0-9]{64}$/i.test(key))throw new Error("FLEXIPAY_DATA_ENCRYPTION_KEY belum dikonfigurasi.");return Buffer.from(key,"hex")}
-function encryptPrivateRecord(value:unknown){const iv=randomBytes(12);const cipher=createCipheriv("aes-256-gcm",privateRecordKey(),iv);const encrypted=Buffer.concat([cipher.update(Buffer.from(JSON.stringify(value),"utf8")),cipher.final()]);return Buffer.concat([Buffer.from("FP1"),iv,cipher.getAuthTag(),encrypted]).toString("base64")}
-function decryptPrivateRecord<T>(value:string):T{const encrypted=Buffer.from(value,"base64");if(encrypted.length<31||encrypted.subarray(0,3).toString()!=="FP1")throw new Error("Data transaksi terenkripsi tidak valid.");const decipher=createDecipheriv("aes-256-gcm",privateRecordKey(),encrypted.subarray(3,15));decipher.setAuthTag(encrypted.subarray(15,31));return JSON.parse(Buffer.concat([decipher.update(encrypted.subarray(31)),decipher.final()]).toString("utf8")) as T}
-db.exec(`
- PRAGMA foreign_keys=ON; PRAGMA busy_timeout=10000;
- CREATE TABLE IF NOT EXISTS commerce_products(
-  id TEXT PRIMARY KEY, name TEXT NOT NULL, category TEXT NOT NULL, description TEXT NOT NULL, image_url TEXT NOT NULL,
-  price INTEGER NOT NULL CHECK(price>0), stock_quantity INTEGER NOT NULL CHECK(stock_quantity>=0), is_active INTEGER NOT NULL DEFAULT 1
- );
- CREATE TABLE IF NOT EXISTS rental_owners(
-  id TEXT PRIMARY KEY, owner_name TEXT NOT NULL, phone_number TEXT NOT NULL, whatsapp_number TEXT NOT NULL, email TEXT
- );
- CREATE TABLE IF NOT EXISTS rental_listings(
-  id TEXT PRIMARY KEY, owner_id TEXT NOT NULL REFERENCES rental_owners(id), title TEXT NOT NULL,
-  property_type TEXT NOT NULL CHECK(property_type IN ('kos','kontrakan')), description TEXT NOT NULL,
-  address_line TEXT NOT NULL, city TEXT NOT NULL, province TEXT NOT NULL, postal_code TEXT NOT NULL,
-  monthly_price INTEGER NOT NULL CHECK(monthly_price>0), image_url TEXT NOT NULL, is_active INTEGER NOT NULL DEFAULT 1,
-  available_from TEXT NOT NULL DEFAULT (date('now'))
- );
- CREATE TABLE IF NOT EXISTS commerce_orders(
-  id TEXT PRIMARY KEY, reference_number TEXT NOT NULL UNIQUE, user_id TEXT NOT NULL REFERENCES users(id),
-  order_type TEXT NOT NULL CHECK(order_type IN ('product','rental')), item_id TEXT NOT NULL,
-  item_name_snapshot TEXT NOT NULL, quantity INTEGER NOT NULL DEFAULT 1 CHECK(quantity BETWEEN 1 AND 10),
-  duration_months INTEGER CHECK(duration_months IS NULL OR duration_months BETWEEN 1 AND 12),
-  recipient_snapshot TEXT NOT NULL, owner_snapshot TEXT, rental_start TEXT, rental_end TEXT,
-  total_amount INTEGER NOT NULL CHECK(total_amount>0),
-  status TEXT NOT NULL DEFAULT 'confirmed' CHECK(status IN ('confirmed','processing','completed','cancelled')),
-  idempotency_key TEXT NOT NULL UNIQUE, created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
- );
- CREATE INDEX IF NOT EXISTS idx_commerce_orders_user_date ON commerce_orders(user_id,created_at DESC);
- CREATE INDEX IF NOT EXISTS idx_commerce_orders_type_date ON commerce_orders(order_type,created_at DESC);
- CREATE TABLE IF NOT EXISTS credit_limit_ledger(
-  id TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id), order_id TEXT NOT NULL UNIQUE REFERENCES commerce_orders(id),
-  entry_type TEXT NOT NULL CHECK(entry_type IN ('purchase','rental')), amount INTEGER NOT NULL CHECK(amount>0),
-  direction TEXT NOT NULL CHECK(direction IN ('debit','credit')), balance_after INTEGER NOT NULL CHECK(balance_after>=0),
-  reference_number TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
- );
- CREATE INDEX IF NOT EXISTS idx_credit_ledger_user_date ON credit_limit_ledger(user_id,created_at DESC);
- CREATE TABLE IF NOT EXISTS transaction_pin_attempts(user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE, failed_count INTEGER NOT NULL DEFAULT 0, window_started_at TEXT NOT NULL);
-`);
-
-const orderColumns=db.prepare("PRAGMA table_info(commerce_orders)").all().map((column)=>String(column.name));
-if(!orderColumns.includes("rental_start"))db.exec("ALTER TABLE commerce_orders ADD COLUMN rental_start TEXT");
-if(!orderColumns.includes("rental_end"))db.exec("ALTER TABLE commerce_orders ADD COLUMN rental_end TEXT");
+import { decryptPrivateRecord, encryptPrivateRecord } from "@/lib/credit-applications";
+import { queryOne, queryRows, withTransaction, type DbClient } from "@/lib/postgres";
 
 const products=[
  {id:"cat-food-pouch-001",name:"Makanan Kucing Premium 100 g",category:"Pet Supplies",description:"Pakan kering untuk kucing dewasa dengan rasa ayam.",image:"/products/cat-food-premium.svg",price:1000,stock:50},
@@ -148,72 +95,224 @@ const extraRentals=[
  {id:'kontrakan-samarinda',owner:"owner-kontrakan-samarinda",title:'Kontrakan Samarinda Seberang',type:'kontrakan',description:'Rumah dengan ruang keluarga dan lingkungan yang tenang.',address:'Jl. Bung Tomo No. 10',city:'Samarinda',province:'Kalimantan Timur',postal:'75242',price:2750000,image:"https://images.unsplash.com/photo-1600607687920-4e2a09cf159e?auto=format&fit=crop&w=1200&q=85"},
 ];
 rentals.push(...extraRentals);
-for(const p of products){db.prepare(`INSERT OR IGNORE INTO commerce_products(id,name,category,description,image_url,price,stock_quantity) VALUES(?,?,?,?,?,?,?)`).run(p.id,p.name,p.category,p.description,p.image,p.price,p.stock);if(p.id.startsWith("fp-product-"))db.prepare("UPDATE commerce_products SET image_url=? WHERE id=?").run(p.image,p.id)}
-// Keep the first 12 added items alongside the original four. The remaining
-// imported rows stay stored but hidden so order references remain valid.
-for(const [index,product] of extraProducts.entries())db.prepare("UPDATE commerce_products SET is_active=? WHERE id=?").run(index<12?1:0,product.id);
 for(const r of extraRentals){const n=String(extraRentals.indexOf(r)+1).padStart(2,"0");owners.push({id:`owner-${r.id}`,name:`Pemilik ${r.title}`,phone:`080000000${n}`,wa:`628000000${n}`,email:`pemilik${n}@contoh.flexipay.invalid`})}
-for(const o of owners)db.prepare(`INSERT OR IGNORE INTO rental_owners(id,owner_name,phone_number,whatsapp_number,email) VALUES(?,?,?,?,?)`).run(o.id,o.name,o.phone,o.wa,o.email);
-for(const r of rentals){db.prepare(`INSERT OR IGNORE INTO rental_listings(id,owner_id,title,property_type,description,address_line,city,province,postal_code,monthly_price,image_url) VALUES(?,?,?,?,?,?,?,?,?,?,?)`).run(r.id,r.owner,r.title,r.type,r.description,r.address,r.city,r.province,r.postal,r.price,r.image);if(extraRentals.some(seed=>seed.id===r.id))db.prepare("UPDATE rental_listings SET image_url=? WHERE id=?").run(r.image,r.id)}
-for(const [index,rental] of extraRentals.entries())db.prepare("UPDATE rental_listings SET is_active=? WHERE id=?").run(index<12?1:0,rental.id);
+
+let seedInitialization: Promise<void> | undefined;
+async function seedCommerce() {
+  await withTransaction(async (client) => {
+    for (const product of products) {
+      await client.query(`INSERT INTO commerce_products (id,name,category,description,image_url,price,stock_quantity)
+        VALUES ($1,$2,$3,$4,$5,$6,$7) ON CONFLICT (id) DO NOTHING`,
+      [product.id, product.name, product.category, product.description, product.image, product.price, product.stock]);
+      if (product.id.startsWith("fp-product-")) {
+        await client.query("UPDATE commerce_products SET image_url = $1 WHERE id = $2", [product.image, product.id]);
+      }
+    }
+    for (const [index, product] of extraProducts.entries()) {
+      await client.query("UPDATE commerce_products SET is_active = $1 WHERE id = $2", [index < 12 ? 1 : 0, product.id]);
+    }
+    for (const owner of owners) {
+      await client.query(`INSERT INTO rental_owners (id,owner_name,phone_number,whatsapp_number,email)
+        VALUES ($1,$2,$3,$4,$5) ON CONFLICT (id) DO NOTHING`,
+      [owner.id, owner.name, owner.phone, owner.wa, owner.email]);
+    }
+    for (const rental of rentals) {
+      await client.query(`INSERT INTO rental_listings
+        (id,owner_id,title,property_type,description,address_line,city,province,postal_code,monthly_price,image_url)
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) ON CONFLICT (id) DO NOTHING`,
+      [rental.id, rental.owner, rental.title, rental.type, rental.description, rental.address, rental.city,
+        rental.province, rental.postal, rental.price, rental.image]);
+      if (extraRentals.some((seed) => seed.id === rental.id)) {
+        await client.query("UPDATE rental_listings SET image_url = $1 WHERE id = $2", [rental.image, rental.id]);
+      }
+    }
+    for (const [index, rental] of extraRentals.entries()) {
+      await client.query("UPDATE rental_listings SET is_active = $1 WHERE id = $2", [index < 12 ? 1 : 0, rental.id]);
+    }
+  });
+}
+
+async function ensureCommerceSeeds() {
+  seedInitialization ??= seedCommerce().catch((error: unknown) => {
+    seedInitialization = undefined;
+    throw error;
+  });
+  await seedInitialization;
+}
 
 export type CatalogProduct={id:string;name:string;category:string;description:string;imageUrl:string;price:number;stock:number};
 export type RentalListing={id:string;ownerId:string;title:string;propertyType:string;description:string;addressLine:string;city:string;province:string;postalCode:string;monthlyPrice:number;imageUrl:string;ownerName:string;ownerPhone:string;whatsappNumber:string};
-function mapProduct(r:Record<string,unknown>):CatalogProduct{return{id:String(r.id),name:String(r.name),category:String(r.category),description:String(r.description),imageUrl:String(r.image_url),price:Number(r.price),stock:Number(r.stock_quantity)}}
-function mapRental(r:Record<string,unknown>):RentalListing{return{id:String(r.id),ownerId:String(r.owner_id),title:String(r.title),propertyType:String(r.property_type),description:String(r.description),addressLine:String(r.address_line),city:String(r.city),province:String(r.province),postalCode:String(r.postal_code),monthlyPrice:Number(r.monthly_price),imageUrl:String(r.image_url),ownerName:String(r.owner_name),ownerPhone:String(r.phone_number),whatsappNumber:String(r.whatsapp_number)}}
-export function getCommerceCatalog(){return{products:db.prepare("SELECT * FROM commerce_products WHERE is_active=1 AND stock_quantity>0 ORDER BY name").all().map(mapProduct),rentals:db.prepare(`SELECT rental_listings.*,rental_owners.owner_name,rental_owners.phone_number,rental_owners.whatsapp_number FROM rental_listings JOIN rental_owners ON rental_owners.id=rental_listings.owner_id WHERE rental_listings.is_active=1 AND date(rental_listings.available_from)<=date('now') AND NOT EXISTS (SELECT 1 FROM commerce_orders WHERE commerce_orders.order_type='rental' AND commerce_orders.item_id=rental_listings.id AND commerce_orders.status IN ('confirmed','processing') AND commerce_orders.rental_start<=date('now') AND commerce_orders.rental_end>date('now')) ORDER BY rental_listings.title`).all().map(mapRental)}}
-export function getCatalogProduct(id:string){const row=db.prepare("SELECT * FROM commerce_products WHERE id=? AND is_active=1 AND stock_quantity>0").get(id);return row?mapProduct(row):null}
-export function getRentalListing(id:string){const row=db.prepare(`SELECT rental_listings.*,rental_owners.owner_name,rental_owners.phone_number,rental_owners.whatsapp_number FROM rental_listings JOIN rental_owners ON rental_owners.id=rental_listings.owner_id WHERE rental_listings.id=? AND rental_listings.is_active=1 AND date(rental_listings.available_from)<=date('now') AND NOT EXISTS (SELECT 1 FROM commerce_orders WHERE commerce_orders.order_type='rental' AND commerce_orders.item_id=rental_listings.id AND commerce_orders.status IN ('confirmed','processing') AND commerce_orders.rental_start<=date('now') AND commerce_orders.rental_end>date('now'))`).get(id);return row?mapRental(row):null}
+function mapProduct(row:Record<string,unknown>):CatalogProduct{return{id:String(row.id),name:String(row.name),category:String(row.category),description:String(row.description),imageUrl:String(row.image_url),price:Number(row.price),stock:Number(row.stock_quantity)}}
+function mapRental(row:Record<string,unknown>):RentalListing{return{id:String(row.id),ownerId:String(row.owner_id),title:String(row.title),propertyType:String(row.property_type),description:String(row.description),addressLine:String(row.address_line),city:String(row.city),province:String(row.province),postalCode:String(row.postal_code),monthlyPrice:Number(row.monthly_price),imageUrl:String(row.image_url),ownerName:String(row.owner_name),ownerPhone:String(row.phone_number),whatsappNumber:String(row.whatsapp_number)}}
+const rentalSelect=`SELECT rental_listings.*,rental_owners.owner_name,rental_owners.phone_number,rental_owners.whatsapp_number
+  FROM rental_listings JOIN rental_owners ON rental_owners.id=rental_listings.owner_id`;
 
-export function getAvailableCredit(userId:string){const approved=db.prepare(`SELECT approved_limit FROM credit_applications WHERE user_id=? AND status='approved' ORDER BY reviewed_at DESC LIMIT 1`).get(userId);if(!approved)return 0;const ledger=db.prepare("SELECT COALESCE(SUM(CASE direction WHEN 'debit' THEN amount ELSE -amount END),0) AS spent FROM credit_limit_ledger WHERE user_id=?").get(userId);return Math.max(0,Number(approved.approved_limit)-Number(ledger?.spent??0))}
+export async function getCommerceCatalog(){
+  await ensureCommerceSeeds();
+  const [productsResult,rentalsResult]=await Promise.all([
+    queryRows("SELECT * FROM commerce_products WHERE is_active=1 AND stock_quantity>0 ORDER BY name"),
+    queryRows(`${rentalSelect} WHERE rental_listings.is_active=1 AND rental_listings.available_from<=CURRENT_DATE
+      AND NOT EXISTS (SELECT 1 FROM commerce_orders WHERE commerce_orders.order_type='rental'
+        AND commerce_orders.item_id=rental_listings.id AND commerce_orders.status IN ('confirmed','processing')
+        AND commerce_orders.rental_start::date<=CURRENT_DATE AND commerce_orders.rental_end::date>CURRENT_DATE)
+      ORDER BY rental_listings.title`),
+  ]);
+  return { products: productsResult.map(mapProduct), rentals: rentalsResult.map(mapRental) };
+}
+
+export async function getCatalogProduct(id:string){
+  await ensureCommerceSeeds();
+  const row=await queryOne("SELECT * FROM commerce_products WHERE id=$1 AND is_active=1 AND stock_quantity>0",[id]);
+  return row?mapProduct(row):null;
+}
+
+export async function getRentalListing(id:string){
+  await ensureCommerceSeeds();
+  const row=await queryOne(`${rentalSelect} WHERE rental_listings.id=$1 AND rental_listings.is_active=1
+    AND rental_listings.available_from<=CURRENT_DATE
+    AND NOT EXISTS (SELECT 1 FROM commerce_orders WHERE commerce_orders.order_type='rental'
+      AND commerce_orders.item_id=rental_listings.id AND commerce_orders.status IN ('confirmed','processing')
+      AND commerce_orders.rental_start::date<=CURRENT_DATE AND commerce_orders.rental_end::date>CURRENT_DATE)`,[id]);
+  return row?mapRental(row):null;
+}
+
+async function getAvailableCreditWith(client:DbClient,userId:string){
+  const result=await client.query(`SELECT approved_limit FROM credit_applications
+    WHERE user_id=$1 AND status='approved' ORDER BY reviewed_at DESC LIMIT 1`,[userId]);
+  const approved=result.rows[0];
+  if(!approved)return 0;
+  const ledger=await client.query(`SELECT COALESCE(SUM(CASE direction WHEN 'debit' THEN amount ELSE -amount END),0) AS spent
+    FROM credit_limit_ledger WHERE user_id=$1`,[userId]);
+  return Math.max(0,Number(approved.approved_limit)-Number(ledger.rows[0]?.spent??0));
+}
+
+export async function getAvailableCredit(userId:string){
+  const approved=await queryOne(`SELECT approved_limit FROM credit_applications
+    WHERE user_id=$1 AND status='approved' ORDER BY reviewed_at DESC LIMIT 1`,[userId]);
+  if(!approved)return 0;
+  const ledger=await queryOne(`SELECT COALESCE(SUM(CASE direction WHEN 'debit' THEN amount ELSE -amount END),0) AS spent
+    FROM credit_limit_ledger WHERE user_id=$1`,[userId]);
+  return Math.max(0,Number(approved.approved_limit)-Number(ledger?.spent??0));
+}
+
 export type AdminCommerceOrder={id:string;referenceNumber:string;userId:string;userEmail:string;fullName:string;orderType:string;itemName:string;quantity:number;durationMonths:number|null;recipient:Record<string,unknown>;owner:Record<string,unknown>|null;totalAmount:number;status:string;createdAt:string};
-export function getAdminCommerceOrders():AdminCommerceOrder[]{return db.prepare(`SELECT commerce_orders.*,users.email AS user_email,users.full_name FROM commerce_orders JOIN users ON users.id=commerce_orders.user_id ORDER BY commerce_orders.created_at DESC`).all().map(r=>({id:String(r.id),referenceNumber:String(r.reference_number),userId:String(r.user_id),userEmail:String(r.user_email),fullName:String(r.full_name),orderType:String(r.order_type),itemName:String(r.item_name_snapshot),quantity:Number(r.quantity),durationMonths:r.duration_months==null?null:Number(r.duration_months),recipient:decryptPrivateRecord<Record<string,unknown>>(String(r.recipient_snapshot)),owner:r.owner_snapshot?decryptPrivateRecord<Record<string,unknown>>(String(r.owner_snapshot)):null,totalAmount:Number(r.total_amount),status:String(r.status),createdAt:String(r.created_at)}))}
 export type UserCommerceOrder=Omit<AdminCommerceOrder,"userId"|"userEmail"|"fullName">;
-export function getUserCommerceOrders(userId:string):UserCommerceOrder[]{return db.prepare(`SELECT * FROM commerce_orders WHERE user_id=? ORDER BY created_at DESC`).all(userId).map(r=>({id:String(r.id),referenceNumber:String(r.reference_number),orderType:String(r.order_type),itemName:String(r.item_name_snapshot),quantity:Number(r.quantity),durationMonths:r.duration_months==null?null:Number(r.duration_months),recipient:decryptPrivateRecord<Record<string,unknown>>(String(r.recipient_snapshot)),owner:r.owner_snapshot?decryptPrivateRecord<Record<string,unknown>>(String(r.owner_snapshot)):null,totalAmount:Number(r.total_amount),status:String(r.status),createdAt:String(r.created_at)}))}
+function mapCommerceOrder(row:Record<string,unknown>):UserCommerceOrder{
+  return {id:String(row.id),referenceNumber:String(row.reference_number),orderType:String(row.order_type),itemName:String(row.item_name_snapshot),
+    quantity:Number(row.quantity),durationMonths:row.duration_months==null?null:Number(row.duration_months),
+    recipient:decryptPrivateRecord<Record<string,unknown>>(String(row.recipient_snapshot)),
+    owner:row.owner_snapshot?decryptPrivateRecord<Record<string,unknown>>(String(row.owner_snapshot)):null,
+    totalAmount:Number(row.total_amount),status:String(row.status),createdAt:String(row.created_at)};
+}
+
+export async function getAdminCommerceOrders():Promise<AdminCommerceOrder[]>{
+  const rows=await queryRows(`SELECT commerce_orders.*,users.email AS user_email,users.full_name
+    FROM commerce_orders JOIN users ON users.id=commerce_orders.user_id ORDER BY commerce_orders.created_at DESC`);
+  return rows.map((row)=>({...mapCommerceOrder(row),userId:String(row.user_id),userEmail:String(row.user_email),fullName:String(row.full_name)}));
+}
+
+export async function getUserCommerceOrders(userId:string):Promise<UserCommerceOrder[]>{
+  const rows=await queryRows("SELECT * FROM commerce_orders WHERE user_id=$1 ORDER BY created_at DESC",[userId]);
+  return rows.map(mapCommerceOrder);
+}
 
 export type CheckoutInput={userId:string;kind:"product"|"rental";itemId:string;quantity:number;durationMonths:number|null;idempotencyKey:string;pin:string;recipient?:{name:string;phone:string;email:string;address:string;postalCode:string}};
-export function submitCommerceCheckout(input:CheckoutInput){
- const prior=db.prepare("SELECT * FROM commerce_orders WHERE idempotency_key=? AND user_id=?").get(input.idempotencyKey,input.userId);
- if(prior)return{success:true as const,referenceNumber:String(prior.reference_number),totalAmount:Number(prior.total_amount),availableLimit:getAvailableCredit(input.userId),whatsappNumber:prior.owner_snapshot?decryptPrivateRecord<{whatsappNumber:string}>(String(prior.owner_snapshot)).whatsappNumber:null};
- db.exec("BEGIN IMMEDIATE");
- try{
-  const lockedPrior=db.prepare("SELECT * FROM commerce_orders WHERE idempotency_key=? AND user_id=?").get(input.idempotencyKey,input.userId);
-  if(lockedPrior){db.exec("COMMIT");return{success:true as const,referenceNumber:String(lockedPrior.reference_number),totalAmount:Number(lockedPrior.total_amount),availableLimit:getAvailableCredit(input.userId),whatsappNumber:lockedPrior.owner_snapshot?decryptPrivateRecord<{whatsappNumber:string}>(String(lockedPrior.owner_snapshot)).whatsappNumber:null}}
-  let item:Record<string,unknown>|undefined;let total=0;let ownerSnapshot:Record<string,unknown>|null=null;let name="";
-  if(input.kind==="product"){
-   if(!Number.isInteger(input.quantity)||input.quantity<1||input.quantity>10)throw new CommerceFailure("invalid");
-   item=db.prepare("SELECT * FROM commerce_products WHERE id=? AND is_active=1").get(input.itemId);if(!item||Number(item.stock_quantity)<input.quantity)throw new CommerceFailure("unavailable");
-   total=Number(item.price)*input.quantity;name=String(item.name);
-   if(!input.recipient||Object.values(input.recipient).some(v=>!String(v).trim())||!/^[0-9]{5,10}$/.test(input.recipient.postalCode))throw new CommerceFailure("invalid");
-  }else{
-   if(!Number.isInteger(input.durationMonths)||Number(input.durationMonths)<1||Number(input.durationMonths)>12)throw new CommerceFailure("invalid");
-   item=db.prepare(`SELECT rental_listings.*,rental_owners.owner_name,rental_owners.phone_number,rental_owners.whatsapp_number,rental_owners.email AS owner_email FROM rental_listings JOIN rental_owners ON rental_owners.id=rental_listings.owner_id WHERE rental_listings.id=? AND rental_listings.is_active=1 AND date(rental_listings.available_from)<=date('now')`).get(input.itemId);
-   if(!item)throw new CommerceFailure("unavailable");
-   const today=new Date().toISOString().slice(0,10);const end=new Date(Date.UTC(new Date(today).getUTCFullYear(),new Date(today).getUTCMonth()+Number(input.durationMonths),new Date(today).getUTCDate())).toISOString().slice(0,10);
-   const conflict=db.prepare(`SELECT id FROM commerce_orders WHERE order_type='rental' AND item_id=? AND status IN ('confirmed','processing') AND rental_start<? AND rental_end>?`).get(input.itemId,end,today);
-   if(conflict)throw new CommerceFailure("unavailable");
-   total=Number(item.monthly_price)*Number(input.durationMonths);name=String(item.title);
-   ownerSnapshot={name:String(item.owner_name),phone:String(item.phone_number),whatsappNumber:String(item.whatsapp_number),email:String(item.owner_email),address:`${item.address_line}, ${item.city}, ${item.province} ${item.postal_code}`};
+
+export async function submitCommerceCheckout(input:CheckoutInput){
+  await ensureCommerceSeeds();
+  try{
+    return await withTransaction(async(client)=>{
+      const userResult=await client.query("SELECT id FROM users WHERE id=$1 FOR UPDATE",[input.userId]);
+      if(!userResult.rowCount)throw new CommerceFailure("invalid");
+      const priorResult=await client.query("SELECT * FROM commerce_orders WHERE idempotency_key=$1 AND user_id=$2",[input.idempotencyKey,input.userId]);
+      const prior=priorResult.rows[0];
+      if(prior)return{success:true as const,referenceNumber:String(prior.reference_number),totalAmount:Number(prior.total_amount),
+        availableLimit:await getAvailableCreditWith(client,input.userId),
+        whatsappNumber:prior.owner_snapshot?decryptPrivateRecord<{whatsappNumber:string}>(String(prior.owner_snapshot)).whatsappNumber:null};
+      let item:Record<string,unknown>|undefined;
+      let total=0;
+      let ownerSnapshot:Record<string,unknown>|null=null;
+      let name="";
+      if(input.kind==="product"){
+        if(!Number.isInteger(input.quantity)||input.quantity<1||input.quantity>10)throw new CommerceFailure("invalid");
+        const result=await client.query("SELECT * FROM commerce_products WHERE id=$1 AND is_active=1 FOR UPDATE",[input.itemId]);
+        item=result.rows[0];
+        if(!item||Number(item.stock_quantity)<input.quantity)throw new CommerceFailure("unavailable");
+        total=Number(item.price)*input.quantity;
+        name=String(item.name);
+        if(!input.recipient||Object.values(input.recipient).some(value=>!String(value).trim())||!/^[0-9]{5,10}$/.test(input.recipient.postalCode))throw new CommerceFailure("invalid");
+      }else{
+        if(!Number.isInteger(input.durationMonths)||Number(input.durationMonths)<1||Number(input.durationMonths)>12)throw new CommerceFailure("invalid");
+        const result=await client.query(`SELECT rental_listings.*,rental_owners.owner_name,rental_owners.phone_number,
+          rental_owners.whatsapp_number,rental_owners.email AS owner_email FROM rental_listings
+          JOIN rental_owners ON rental_owners.id=rental_listings.owner_id
+          WHERE rental_listings.id=$1 AND rental_listings.is_active=1 AND rental_listings.available_from<=CURRENT_DATE
+          FOR UPDATE OF rental_listings`,[input.itemId]);
+        item=result.rows[0];
+        if(!item)throw new CommerceFailure("unavailable");
+        const today=new Date().toISOString().slice(0,10);
+        const date=new Date(`${today}T00:00:00.000Z`);
+        const end=new Date(Date.UTC(date.getUTCFullYear(),date.getUTCMonth()+Number(input.durationMonths),date.getUTCDate())).toISOString().slice(0,10);
+        const conflict=await client.query(`SELECT id FROM commerce_orders WHERE order_type='rental'
+          AND item_id=$1 AND status IN ('confirmed','processing') AND rental_start<$2 AND rental_end>$3 FOR UPDATE`,
+        [input.itemId,end,today]);
+        if(conflict.rowCount)throw new CommerceFailure("unavailable");
+        total=Number(item.monthly_price)*Number(input.durationMonths);
+        name=String(item.title);
+        ownerSnapshot={name:String(item.owner_name),phone:String(item.phone_number),whatsappNumber:String(item.whatsapp_number),
+          email:String(item.owner_email),address:`${item.address_line}, ${item.city}, ${item.province} ${item.postal_code}`};
+      }
+      const available=await getAvailableCreditWith(client,input.userId);
+      if(available<total)throw new CommerceFailure("limit",available);
+      const pinResult=await client.query("SELECT failed_count,window_started_at FROM transaction_pin_attempts WHERE user_id=$1 FOR UPDATE",[input.userId]);
+      const pinAttempt=pinResult.rows[0];
+      const withinWindow=pinAttempt&&Date.now()-new Date(String(pinAttempt.window_started_at)).getTime()<15*60*1000;
+      if(withinWindow&&Number(pinAttempt.failed_count)>=5)throw new CommerceFailure("pin_locked");
+      if(!await verifyUserPin(input.userId,input.pin)){
+        const count=withinWindow?Number(pinAttempt.failed_count)+1:1;
+        await client.query(`INSERT INTO transaction_pin_attempts(user_id,failed_count,window_started_at)
+          VALUES($1,$2,$3) ON CONFLICT(user_id) DO UPDATE SET failed_count=EXCLUDED.failed_count,window_started_at=EXCLUDED.window_started_at`,
+        [input.userId,count,withinWindow?String(pinAttempt.window_started_at):new Date().toISOString()]);
+        return{success:false as const,reason:count>=5?"pin_locked" as const:"pin" as const};
+      }
+      await client.query("DELETE FROM transaction_pin_attempts WHERE user_id=$1",[input.userId]);
+      const id=randomUUID();
+      const reference=`FP-${input.kind==="product"?"ORD":"RNT"}-${randomUUID().slice(0,8).toUpperCase()}`;
+      const recipient=input.kind==="product"?{...input.recipient}:{};
+      const rentalStart=input.kind==="rental"?new Date().toISOString().slice(0,10):null;
+      let rentalEnd:string|null=null;
+      if(input.kind==="rental"&&input.durationMonths){
+        const start=new Date();
+        rentalEnd=new Date(Date.UTC(start.getUTCFullYear(),start.getUTCMonth()+input.durationMonths,start.getUTCDate())).toISOString().slice(0,10);
+      }
+      await client.query(`INSERT INTO commerce_orders
+        (id,reference_number,user_id,order_type,item_id,item_name_snapshot,quantity,duration_months,recipient_snapshot,
+        owner_snapshot,rental_start,rental_end,total_amount,status,idempotency_key)
+        VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,'confirmed',$14)`,
+      [id,reference,input.userId,input.kind,input.itemId,name,input.kind==="product"?input.quantity:1,input.durationMonths,
+        encryptPrivateRecord(recipient),ownerSnapshot?encryptPrivateRecord(ownerSnapshot):null,rentalStart,rentalEnd,total,input.idempotencyKey]);
+      if(input.kind==="product"){
+        const stock=await client.query(`UPDATE commerce_products SET stock_quantity=stock_quantity-$1
+          WHERE id=$2 AND stock_quantity >= $1`,[input.quantity,input.itemId]);
+        if(stock.rowCount!==1)throw new CommerceFailure("unavailable");
+      }
+      const balanceAfter=available-total;
+      await client.query(`INSERT INTO credit_limit_ledger
+        (id,user_id,order_id,entry_type,amount,direction,balance_after,reference_number)
+        VALUES($1,$2,$3,$4,$5,'debit',$6,$7)`,
+      [randomUUID(),input.userId,id,input.kind==="product"?"purchase":"rental",total,balanceAfter,reference]);
+      return{success:true as const,referenceNumber:reference,totalAmount:total,availableLimit:balanceAfter,
+        whatsappNumber:ownerSnapshot?String(ownerSnapshot.whatsappNumber):null};
+    });
+  }catch(error){
+    if(error instanceof CommerceFailure)return{success:false as const,reason:error.reason,availableLimit:error.availableLimit};
+    throw error;
   }
-  const available=getAvailableCredit(input.userId);
-  if(available<total)throw new CommerceFailure("limit",available);
-  const pinAttempt=db.prepare("SELECT failed_count,window_started_at FROM transaction_pin_attempts WHERE user_id=?").get(input.userId);const withinWindow=pinAttempt&&Date.now()-new Date(String(pinAttempt.window_started_at)).getTime()<15*60*1000;
-  if(withinWindow&&Number(pinAttempt.failed_count)>=5)throw new CommerceFailure("pin_locked");
-  if(!verifyUserPin(input.userId,input.pin)){
-   const count=withinWindow?Number(pinAttempt!.failed_count)+1:1;db.prepare(`INSERT INTO transaction_pin_attempts(user_id,failed_count,window_started_at) VALUES(?,?,?) ON CONFLICT(user_id) DO UPDATE SET failed_count=excluded.failed_count,window_started_at=excluded.window_started_at`).run(input.userId,count,withinWindow?String(pinAttempt!.window_started_at):new Date().toISOString());db.exec("COMMIT");return{success:false as const,reason:count>=5?"pin_locked" as const:"pin" as const};
-  }
-  db.prepare("DELETE FROM transaction_pin_attempts WHERE user_id=?").run(input.userId);
-  const id=randomUUID();const reference=`FP-${input.kind==="product"?"ORD":"RNT"}-${randomUUID().slice(0,8).toUpperCase()}`;
-  const recipient=input.kind==="product"?{...input.recipient}:{};
-  const rentalStart=input.kind==="rental"?new Date().toISOString().slice(0,10):null;
-  let rentalEnd:string|null=null;
-  if(input.kind==="rental"&&input.durationMonths){const start=new Date(),end=new Date(Date.UTC(start.getUTCFullYear(),start.getUTCMonth()+input.durationMonths,start.getUTCDate()));rentalEnd=end.toISOString().slice(0,10)}
-  db.prepare(`INSERT INTO commerce_orders(id,reference_number,user_id,order_type,item_id,item_name_snapshot,quantity,duration_months,recipient_snapshot,owner_snapshot,rental_start,rental_end,total_amount,status,idempotency_key) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).run(id,reference,input.userId,input.kind,input.itemId,name,input.kind==="product"?input.quantity:1,input.durationMonths,encryptPrivateRecord(recipient),ownerSnapshot?encryptPrivateRecord(ownerSnapshot):null,rentalStart,rentalEnd,total,"confirmed",input.idempotencyKey);
-  if(input.kind==="product"){const stock=db.prepare("UPDATE commerce_products SET stock_quantity=stock_quantity-? WHERE id=? AND stock_quantity>=?").run(input.quantity,input.itemId,input.quantity);if(stock.changes!==1)throw new CommerceFailure("unavailable")}
-  const balanceAfter=available-total;db.prepare(`INSERT INTO credit_limit_ledger(id,user_id,order_id,entry_type,amount,direction,balance_after,reference_number) VALUES(?,?,?,?,?,?,?,?)`).run(randomUUID(),input.userId,id,input.kind==="product"?"purchase":"rental",total,"debit",balanceAfter,reference);
-  db.exec("COMMIT");return{success:true as const,referenceNumber:reference,totalAmount:total,availableLimit:balanceAfter,whatsappNumber:ownerSnapshot?String(ownerSnapshot.whatsappNumber):null};
- }catch(error){try{db.exec("ROLLBACK")}catch{}if(error instanceof CommerceFailure)return{success:false as const,reason:error.reason,availableLimit:error.availableLimit};throw error}
 }
+
 class CommerceFailure extends Error{constructor(public reason:"invalid"|"unavailable"|"limit"|"pin_locked",public availableLimit?:number){super(reason)}}
 
-export function getUserCommerceOrder(userId:string,referenceNumber:string):UserCommerceOrder|null{const row=db.prepare("SELECT * FROM commerce_orders WHERE user_id=? AND reference_number=?").get(userId,referenceNumber);if(!row)return null;return{id:String(row.id),referenceNumber:String(row.reference_number),orderType:String(row.order_type),itemName:String(row.item_name_snapshot),quantity:Number(row.quantity),durationMonths:row.duration_months==null?null:Number(row.duration_months),recipient:decryptPrivateRecord<Record<string,unknown>>(String(row.recipient_snapshot)),owner:row.owner_snapshot?decryptPrivateRecord<Record<string,unknown>>(String(row.owner_snapshot)):null,totalAmount:Number(row.total_amount),status:String(row.status),createdAt:String(row.created_at)}}
+export async function getUserCommerceOrder(userId:string,referenceNumber:string):Promise<UserCommerceOrder|null>{
+  const row=await queryOne("SELECT * FROM commerce_orders WHERE user_id=$1 AND reference_number=$2",[userId,referenceNumber]);
+  return row?mapCommerceOrder(row):null;
+}

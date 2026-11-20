@@ -14,10 +14,11 @@ export async function POST(request: Request) {
   if (!/^\d{6}$/.test(pin)) return NextResponse.json({ field: "pin", error: "PIN harus terdiri dari 6 angka." }, { status: 400 });
   if (body.acceptTerms !== true) return NextResponse.json({ field: "acceptTerms", error: "Setujui syarat dan ketentuan untuk melanjutkan." }, { status: 400 });
   try {
-    const result = registerUser({ fullName, email, phone: phone.replace(/[\s()-]/g, ""), pin });
+    const result = await registerUser({ fullName, email, phone: phone.replace(/[\s()-]/g, ""), pin });
     if (!result.success) return NextResponse.json({ field: result.reason, error: result.reason === "email" ? "Email sudah digunakan." : "Nomor HP sudah terdaftar." }, { status: 409 });
     return NextResponse.json({ message: "Registrasi berhasil. Silakan masuk dengan email dan PIN Anda." }, { status: 201 });
-  } catch {
+  } catch (error) {
+    console.error("Gagal membuat akun FlexiPay:", error);
     return NextResponse.json({ error: "Akun belum dapat dibuat. Coba lagi sebentar." }, { status: 500 });
   }
 }

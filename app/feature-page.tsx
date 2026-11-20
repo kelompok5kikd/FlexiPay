@@ -21,7 +21,7 @@ const benefits = [
   { number: "03", icon: "✓", title: "Informasi transparan", body: "Pahami nominal dan pilihan pembayaran sebelum melanjutkan ke tahap berikutnya." },
 ];
 
-function FeatureContent({ page, catalog, user, availableLimit }: { page: FeaturePageKey; catalog: ReturnType<typeof getCommerceCatalog> | null; user: AuthUser | null; availableLimit: number }) {
+function FeatureContent({ page, catalog, user, availableLimit }: { page: FeaturePageKey; catalog: Awaited<ReturnType<typeof getCommerceCatalog>> | null; user: AuthUser | null; availableLimit: number }) {
   if (page === "keunggulan") return <div className="feature-cards">{benefits.map((item) => <article className="benefit-card" key={item.number}><span className="card-number">{item.number}</span><div className="card-icon">{item.icon}</div><h3>{item.title}</h3><p>{item.body}</p></article>)}</div>;
 
   if (page === "produk" && catalog) return <ProductCatalog products={catalog.products} rentals={catalog.rentals} user={user} availableLimit={availableLimit} />;
@@ -31,10 +31,12 @@ function FeatureContent({ page, catalog, user, availableLimit }: { page: Feature
   return <div className="application-info"><div className="application-info-icon">i</div><div><h2>Pengajuan kredit belum tersedia</h2><p>Halaman ini menjelaskan konsep layanan FlexiPay. Pengajuan, pemeriksaan kelayakan, dan pencairan kredit sungguhan belum terhubung di prototipe.</p><p>Jangan masukkan data finansial atau identitas sensitif untuk mencoba fitur ini.</p><AuthTrigger mode="register" className="button">Buat akun FlexiPay <span>↗</span></AuthTrigger></div></div>;
 }
 
-export function FeaturePage({ page, user }: { page: FeaturePageKey; user: AuthUser | null }) {
+export async function FeaturePage({ page, user }: { page: FeaturePageKey; user: AuthUser | null }) {
   const content = pageContent[page];
-  const catalog = page === "produk" ? getCommerceCatalog() : null;
-  const availableLimit = user ? getAvailableCredit(user.id) : 0;
+  const [catalog, availableLimit] = await Promise.all([
+    page === "produk" ? getCommerceCatalog() : Promise.resolve(null),
+    user ? getAvailableCredit(user.id) : Promise.resolve(0),
+  ]);
   return <main className="feature-page">
     <SiteHeader user={user} activePath={`/${page}`} totalLimit={availableLimit} />
     <section className={`feature-hero feature-hero-${page}`}><div className="eyebrow dark-eyebrow"><span /> {content.eyebrow}</div><h1>{content.title}</h1><p>{content.intro}</p></section>

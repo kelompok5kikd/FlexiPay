@@ -13,7 +13,7 @@ export default async function LoginPage({ searchParams }: { searchParams: Promis
   const cookieStore = await cookies();
   const params = await searchParams;
   const next = params.next?.startsWith("/") && !params.next.startsWith("//") ? params.next : "/";
-  if (getUserForSession(cookieStore.get("flexipay_session")?.value)) redirect(next);
+  if (await getUserForSession(cookieStore.get("flexipay_session")?.value)) redirect(next);
   return <main className="auth-page"><div className="auth-backdrop"/><section className="auth-card login-card">
     <Link className="auth-logo" href="/" aria-label="Kembali ke beranda"><img src="/flexipay-logo.png" alt="FlexiPay" /></Link>
     <div className="auth-eyebrow"><span/> WELCOME TO FLEXIPAY</div><h1>Selamat datang kembali</h1><p className="auth-intro">Masuk menggunakan email dan PIN FlexiPay.</p>

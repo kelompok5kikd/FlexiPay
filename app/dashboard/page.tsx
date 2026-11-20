@@ -39,13 +39,15 @@ export default async function DashboardPage() {
   const user = await getCurrentUser();
   if (!user) redirect(`/login?next=${encodeURIComponent("/dashboard")}`);
 
-  const approvedLimit = getApprovedLimitForUser(user.id);
-  const availableLimit = getAvailableCredit(user.id);
+  const [approvedLimit, availableLimit, application, orders, bills] = await Promise.all([
+    getApprovedLimitForUser(user.id),
+    getAvailableCredit(user.id),
+    getCreditApplicationForUser(user.id),
+    getUserCommerceOrders(user.id),
+    getUserInstallments(user.id),
+  ]);
   const usedLimit = Math.max(0, approvedLimit - availableLimit);
-  const application = getCreditApplicationForUser(user.id);
-  const orders = getUserCommerceOrders(user.id);
   const tenor = application?.status === "approved" ? application.approvedTenor ?? 0 : 0;
-  const bills = getUserInstallments(user.id);
   const todayParts = new Intl.DateTimeFormat("en-CA", { year: "numeric", month: "2-digit", day: "2-digit", timeZone: "Asia/Jakarta" }).formatToParts(new Date());
   const today = Object.fromEntries(todayParts.map((part) => [part.type, part.value]));
   const todayKey = `${today.year}-${today.month}-${today.day}`;

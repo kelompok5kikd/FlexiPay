@@ -9,16 +9,21 @@ export async function POST(request: Request) {
   const pin = typeof body.pin === "string" ? body.pin : "";
   if (!email || !pin) return NextResponse.json({ error: "Email dan PIN wajib diisi." }, { status: 400 });
   if (!/^\d{6}$/.test(pin)) {
-    recordUserLoginFailure(email);
-    return NextResponse.json({ error: "Email/PIN salah atau belum terdaftar." }, { status: 401 });
+    try {
+      await recordUserLoginFailure(email);
+      return NextResponse.json({ error: "Email/PIN salah atau belum terdaftar." }, { status: 401 });
+    } catch (error) {
+      console.error("Gagal mencatat percobaan login FlexiPay:", error);
+      return NextResponse.json({ error: "Login belum dapat diproses. Coba lagi sebentar." }, { status: 500 });
+    }
   }
   try {
-    const result = createSession(email, pin);
+    const result = await createSession(email, pin);
     if (!result) {
-      recordUserLoginFailure(email);
+      await recordUserLoginFailure(email);
       return NextResponse.json({ error: "Email/PIN salah atau belum terdaftar." }, { status: 401 });
     }
-    recordUserLoginSuccess(result.user.id, result.user.email);
+    await recordUserLoginSuccess(result.user.id, result.user.email);
     const response = NextResponse.json({ user: result.user });
     response.cookies.set("flexipay_session", result.token, {
       httpOnly: true,
@@ -28,7 +33,8 @@ export async function POST(request: Request) {
       maxAge: 60 * 60 * 24 * 7,
     });
     return response;
-  } catch {
+  } catch (error) {
+    console.error("Gagal memproses login FlexiPay:", error);
     return NextResponse.json({ error: "Login belum dapat diproses. Coba lagi sebentar." }, { status: 500 });
   }
 }

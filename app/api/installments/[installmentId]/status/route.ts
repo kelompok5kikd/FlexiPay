@@ -14,13 +14,13 @@ type MidtransStatus = {
 
 export async function GET(_request: Request, context: { params: Promise<{ installmentId: string }> }) {
   const session = await cookies();
-  const user = getUserForSession(session.get("flexipay_session")?.value);
+  const user = await getUserForSession(session.get("flexipay_session")?.value);
   if (!user) return NextResponse.json({ error: "Silakan login kembali." }, { status: 401 });
 
   const { installmentId } = await context.params;
   if (!/^[0-9a-f-]{36}$/i.test(installmentId)) return NextResponse.json({ error: "Tagihan tidak ditemukan." }, { status: 404 });
 
-  const payment = getLatestInstallmentPayment(user.id, installmentId);
+  const payment = await getLatestInstallmentPayment(user.id, installmentId);
   if (!payment) return NextResponse.json({ status: "unpaid" });
   if (payment.installment_status === "paid") return NextResponse.json({ status: "paid" });
   if (payment.status !== "pending") return NextResponse.json({ status: String(payment.status) });
@@ -55,7 +55,7 @@ export async function GET(_request: Request, context: { params: Promise<{ instal
     }
 
     const successful = transactionStatus === "settlement" || (transactionStatus === "capture" && result.fraud_status === "accept");
-    const updated = updateMidtransPayment({
+    const updated = await updateMidtransPayment({
       orderId,
       transactionId,
       amount,
@@ -65,7 +65,8 @@ export async function GET(_request: Request, context: { params: Promise<{ instal
     });
     if (!updated) return NextResponse.json({ error: "Status pembayaran belum dapat disimpan." }, { status: 500 });
     return NextResponse.json({ status: successful ? "paid" : transactionStatus });
-  } catch {
-    return NextResponse.json({ status: "pending" });
+  } catch (error) {
+    console.error("Gagal memeriksa status pembayaran Midtrans:", error);
+    return NextResponse.json({ error: "Status pembayaran belum dapat diperiksa." }, { status: 500 });
   }
 }

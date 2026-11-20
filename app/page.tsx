@@ -19,9 +19,10 @@ export const instant = false;
 export default async function Home() {
   await connection();
   const user = await getCurrentUser();
+  const availableLimit = user ? await getAvailableCredit(user.id) : 0;
   return (
     <main>
-      <SiteHeader user={user} totalLimit={user ? getAvailableCredit(user.id) : 0} />
+      <SiteHeader user={user} totalLimit={availableLimit} />
 
       <section className="hero" id="beranda">
         <video className="hero-video" autoPlay muted loop playsInline preload="metadata" poster="https://images.pexels.com/photos/1181406/pexels-photo-1181406.jpeg?auto=compress&cs=tinysrgb&w=2000" aria-label="Suasana kota modern">

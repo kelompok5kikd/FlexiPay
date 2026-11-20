@@ -20,6 +20,7 @@ export default async function InformationPage({ params }: { params: Promise<{ sl
   if (!page) notFound();
 
   const user = await getCurrentUser();
+  const availableLimit = user ? await getAvailableCredit(user.id) : 0;
   const faqGroups = page.faqs ? [
     { title: "Tentang FlexiPay", start: 0, end: 3 },
     { title: "Akun dan Verifikasi", start: 3, end: 7 },
@@ -31,7 +32,7 @@ export default async function InformationPage({ params }: { params: Promise<{ sl
   ] : [];
 
   return <main className="information-page">
-    <SiteHeader user={user} activePath={`/informasi/${slug}`} totalLimit={user ? getAvailableCredit(user.id) : 0} />
+    <SiteHeader user={user} activePath={`/informasi/${slug}`} totalLimit={availableLimit} />
     <section className="information-hero">
       <Link href="/" className="information-back">← Kembali ke Beranda</Link>
       <span className="information-eyebrow">INFORMASI FLEXIPAY</span>
