@@ -37,8 +37,7 @@ export function PartnerMarquee() {
   return (
     <section className="partner-showcase" id="merchant-partner" aria-labelledby="partner-title">
       <div className="partner-marquee-heading">
-        <span className="eyebrow dark-eyebrow"><span /> MERCHANT PARTNER</span>
-        <h2 id="partner-title">Temukan brand <em>favoritmu.</em></h2>
+    <h2 id="partner-title" className="eyebrow dark-eyebrow">MERCHANT PARTNER</h2>
       </div>
       <div className="partner-marquee" aria-label="Logo merchant pilihan">
         <div className="partner-lane">
@@ -71,7 +70,12 @@ export function PartnerMarquee() {
           <label className="partner-search-label">
             <span className="sr-only">Cari merchant</span>
             <span aria-hidden="true">⌕</span>
-            <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Cari nama atau kategori merchant" />
+            <input
+              suppressHydrationWarning
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder="Cari nama atau kategori merchant"
+            />
           </label>
           <label className="partner-category-label">
             <span className="sr-only">Filter kategori</span>

@@ -4,6 +4,7 @@ import { SiteHeader } from "./site-header";
 import { AuthTrigger } from "./auth-trigger";
 import { getAvailableCredit, getCommerceCatalog } from "@/lib/commerce-db";
 import { ProductCatalog } from "./product-catalog";
+import { SiteFooter } from "./site-footer";
 
 export type FeaturePageKey = "keunggulan" | "produk" | "cara-kerja" | "pengajuan-kredit";
 
@@ -38,6 +39,6 @@ export function FeaturePage({ page, user }: { page: FeaturePageKey; user: AuthUs
     <SiteHeader user={user} activePath={`/${page}`} totalLimit={availableLimit} />
     <section className={`feature-hero feature-hero-${page}`}><div className="eyebrow dark-eyebrow"><span /> {content.eyebrow}</div><h1>{content.title}</h1><p>{content.intro}</p></section>
     <section className={`feature-body feature-body-${page}`}><FeatureContent page={page} catalog={catalog} user={user} availableLimit={availableLimit} /></section>
-    <footer><a className="brand footer-brand" href="/" aria-label="FlexiPay, Beranda"><img className="brand-logo" src="/flexipay-logo.png" alt="FlexiPay — your payment, your flexibility" /></a><p>Informasi layanan FlexiPay</p><a className="footer-admin-link" href="/admin">Portal Admin</a><span>© 2026 FlexiPay. Semua hak dilindungi.</span></footer>
+    <SiteFooter />
   </main>;
 }
