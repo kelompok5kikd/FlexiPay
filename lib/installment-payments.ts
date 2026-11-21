@@ -1,6 +1,7 @@
 import "server-only";
 import { randomUUID } from "node:crypto";
 import { execute, queryOne, withTransaction } from "@/lib/postgres";
+import { calculateInstallmentTerms } from "@/lib/credit-calculator";
 
 function dateInJakarta(date: Date) {
   const parts = new Intl.DateTimeFormat("en-CA", {
@@ -36,7 +37,7 @@ export async function getUserInstallments(userId: string): Promise<UserInstallme
 
     const tenor = Number(application.approved_tenor);
     const approvedLimit = Number(application.approved_limit);
-    const amount = Math.round(approvedLimit / tenor) + Math.round(approvedLimit * 0.005);
+    const amount = calculateInstallmentTerms(approvedLimit, tenor).installmentPerMonth;
     for (let index = 1; index <= tenor; index += 1) {
       await client.query(`INSERT INTO installments (id,application_id,user_id,installment_no,due_date,amount)
         VALUES ($1,$2,$3,$4,$5,$6) ON CONFLICT (application_id,installment_no) DO NOTHING`,

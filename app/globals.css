@@ -58,6 +58,9 @@
 .admin-login-form button,.admin-save{height:48px;border:0;border-radius:28px;background:#0959f8;color:#fff;font:inherit;font-size:13px;font-weight:800;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:12px}
 .admin-login-form button:disabled,.admin-save:disabled{opacity:.65;cursor:wait}
 .admin-login-form button span{font-size:19px;font-weight:400}
+.how .steps,.feature-body-cara-kerja .feature-steps{grid-template-columns:repeat(4,minmax(0,1fr))}
+@media(max-width:980px){.how .steps,.feature-body-cara-kerja .feature-steps{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:780px){.how .steps,.feature-body-cara-kerja .feature-steps{grid-template-columns:1fr}}
 .admin-form-error{margin:0;color:#bd3443;font-size:12px}
 .admin-back-home{display:block;text-align:center;margin:20px 0 0;color:#0959f8;font-size:12px;font-weight:700}
 .admin-login-note{display:block;border-top:1px solid #e6ecf3;margin-top:22px;padding-top:16px;color:#8b99ac;font-size:10px}
@@ -278,6 +281,17 @@
 
 @media (max-width: 390px) {
   .site-header { padding-inline: 9px; }
+
+  .credit-heading .credit-simulator-cta{margin-top:16px}
+  .credit-simulator-wrap{max-width:900px}
+  .credit-simulator-form{max-width:820px}
+  .credit-simulator-result h2{margin:0 0 12px;color:#19365f;font-size:21px}
+  .credit-simulator-result p{display:flex;justify-content:space-between;gap:16px;margin:0;padding:10px 0;border-bottom:1px solid #d5efdc}
+  .credit-simulator-result p:last-child{border-bottom:0}
+  .credit-simulator-result p span{color:#456f54}
+  .credit-simulator-result p b{text-align:right;color:#244e31}
+  .credit-simulator-disclaimer{margin:17px 0 0;color:#7b899f;font-size:11px;line-height:1.7}
+  @media(max-width:600px){.credit-simulator-result p{align-items:flex-start}.credit-simulator-result p span{max-width:55%}}
   .brand-logo { width: 96px; }
   .site-header .header-actions { gap: 5px; }
   .mobile-nav-panel { right: -2px; }

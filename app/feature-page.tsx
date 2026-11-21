@@ -11,7 +11,7 @@ export type FeaturePageKey = "keunggulan" | "produk" | "cara-kerja" | "pengajuan
 const pageContent: Record<FeaturePageKey, { eyebrow: string; title: ReactNode; intro: string }> = {
   keunggulan: { eyebrow: "KENAPA FLEXIPAY", title: <>Lebih leluasa dalam<br /><em>setiap pilihan.</em></>, intro: "Kenali cara FlexiPay membantu pengalaman belanja dan pembayaran terasa lebih mudah dipahami." },
   produk: { eyebrow: "A LITTLE SOMETHING FOR YOU", title: <>Temukan yang cocok<br /><em>dengan gayamu.</em></>, intro: "Jelajahi produk pilihan atau temukan kos dan kontrakan dengan Rent Now, Pay Later." },
-  "cara-kerja": { eyebrow: "CARA KERJA", title: <>Mulai dalam<br /><em>tiga langkah.</em></>, intro: "Alur sederhana untuk memahami pengalaman FlexiPay dari membuat akun hingga memilih cara pembayaran." },
+  "cara-kerja": { eyebrow: "CARA KERJA", title: <>Mulai dalam<br /><em>empat langkah.</em></>, intro: "Ajukan limit FlexiPay, belanja di merchant rekanan dengan QRIS, lalu pantau pembayaran cicilanmu." },
   "pengajuan-kredit": { eyebrow: "INFORMASI PENGAJUAN", title: <>Rencanakan dengan<br /><em>lebih fleksibel.</em></>, intro: "Pelajari gambaran pengajuan FlexiPay. Fitur ini masih berupa prototipe dan belum memproses pengajuan kredit sungguhan." },
 };
 
@@ -26,7 +26,7 @@ function FeatureContent({ page, catalog, user, availableLimit }: { page: Feature
 
   if (page === "produk" && catalog) return <ProductCatalog products={catalog.products} rentals={catalog.rentals} user={user} availableLimit={availableLimit} />;
 
-  if (page === "cara-kerja") return <div className="steps feature-steps"><article><span>01</span><h3>Buat akun</h3><p>Daftar menggunakan nama, nomor HP, email, dan PIN FlexiPay.</p></article><article><span>02</span><h3>Pindai QRIS</h3><p>Buka fitur Scan QR dan izinkan kamera. Pembacaan QR pada prototipe hanya simulasi.</p></article><article><span>03</span><h3>Pahami pilihan bayar</h3><p>Lihat ilustrasi pilihan pembayaran. Tidak ada uang atau pembayaran nyata yang diproses.</p></article></div>;
+  if (page === "cara-kerja") return <div className="steps feature-steps"><article><span>01</span><h3>Daftar &amp; ajukan limit</h3><p>Buat akun, lengkapi data diri dan pekerjaan, tentukan limit serta tenor yang diajukan, lalu unggah dokumen pendukung.</p></article><article><span>02</span><h3>Tunggu peninjauan</h3><p>Tim admin meninjau pengajuan. Limit dan tenor baru tersedia setelah disetujui, dan jumlahnya bisa berbeda dari permintaan.</p></article><article><span>03</span><h3>Pilih merchant &amp; belanja</h3><p>Pilih merchant rekanan dan barang yang ingin dibeli menggunakan limit FlexiPay.</p></article><article><span>04</span><h3>Pindai QRIS &amp; konfirmasi</h3><p>Pindai QRIS merchant di kasir, periksa nominal transaksi, lalu konfirmasi dengan PIN FlexiPay. Cicilan mengikuti tenor yang disetujui saat pengajuan; tagihan dipantau di dashboard dan dibayar melalui Midtrans.</p></article></div>;
 
   return <div className="application-info"><div className="application-info-icon">i</div><div><h2>Pengajuan kredit belum tersedia</h2><p>Halaman ini menjelaskan konsep layanan FlexiPay. Pengajuan, pemeriksaan kelayakan, dan pencairan kredit sungguhan belum terhubung di prototipe.</p><p>Jangan masukkan data finansial atau identitas sensitif untuk mencoba fitur ini.</p><AuthTrigger mode="register" className="button">Buat akun FlexiPay <span>↗</span></AuthTrigger></div></div>;
 }
